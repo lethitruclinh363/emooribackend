@@ -57,7 +57,26 @@ app.get('/api', (req, res) => {
 // Middlewares
 app.use(express.json({ limit: '10mb' })); // Tăng giới hạn để nhận ảnh base64
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
-app.use(cors());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigins = [
+        /^https:\/\/.*\.vercel\.app$/i,
+        /^http:\/\/localhost(:\d+)?$/i,
+        /^https:\/\/localhost(:\d+)?$/i,
+        /^https:\/\/emooribackend\.onrender\.com$/i,
+      ];
+
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.some((pattern) => pattern.test(origin))) {
+        return callback(null, true);
+      }
+
+      return callback(null, false);
+    },
+    credentials: true,
+  })
+);
 
 const uploadsRoot = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsRoot)) {
