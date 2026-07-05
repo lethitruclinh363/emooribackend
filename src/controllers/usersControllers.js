@@ -72,8 +72,22 @@ async function hasMxRecords(email) {
     if (at < 0) return false;
     const domain = v.slice(at + 1);
     if (!domain) return false;
-    const records = await dns.resolveMx(domain);
-    return Array.isArray(records) && records.length > 0;
+    
+    try {
+        const records = await dns.resolveMx(domain);
+        return Array.isArray(records) && records.length > 0;
+    } catch (error) {
+        // In production environments (Render, Vercel), DNS resolution might be restricted.
+        // Allow common domains to proceed without MX validation.
+        const commonDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com'];
+        if (commonDomains.includes(domain)) {
+            console.warn(`[MX Check] Allowing common domain ${domain} without DNS validation`);
+            return true;
+        }
+        // For other domains, log warning but allow (prevent registration block in serverless envs)
+        console.warn(`[MX Check] DNS resolution failed for ${domain}, allowing email anyway:`, error.message);
+        return true;
+    }
 }
 
 function getTransporter() {
@@ -211,16 +225,13 @@ exports.createUser = async (req, res) => {
             return res.status(400).json({ error: 'Email không đúng định dạng' });
         }
 
-        try {
-            const ok = await hasMxRecords(email);
-            if (!ok) {
-                return res.status(400).json({ error: 'Email không tồn tại hoặc tên miền không nhận email' });
-            }
-        } catch {
-            return res.status(400).json({ error: 'Không thể kiểm tra email. Vui lòng thử lại' });
-        }
-
         const normalizedEmail = String(email).trim().toLowerCase();
+        
+        // Validate email domain (non-blocking in serverless environments)
+        const mxValid = await hasMxRecords(normalizedEmail);
+        if (!mxValid) {
+            return res.status(400).json({ error: 'Email domain không hợp lệ' });
+        }
         const isAdminEmail = normalizedEmail.includes('admin');
         //hash user password
         const hashPassword = await bcrypt.hash(password, saltRounds);
@@ -271,13 +282,10 @@ exports.requestPasswordOtp = async (req, res) => {
             });
         }
 
-        try {
-            const ok = await hasMxRecords(normalizedEmail);
-            if (!ok) {
-                return res.status(400).json({ error: 'Email không tồn tại hoặc tên miền không nhận email' });
-            }
-        } catch {
-            return res.status(400).json({ error: 'Không thể kiểm tra email. Vui lòng thử lại' });
+        // Validate email domain (non-blocking in serverless environments)
+        const mxValid = await hasMxRecords(normalizedEmail);
+        if (!mxValid) {
+            return res.status(400).json({ error: 'Email domain không hợp lệ' });
         }
 
         const user = await User.findOne({ email: normalizedEmail }).lean();
